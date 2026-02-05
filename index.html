@@ -74,6 +74,34 @@
       display: none;
     }
 
+    /* controls (top-left) */
+    #controls {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      color: white;
+      font-size: 14px;
+      background: rgba(0,0,0,0.45);
+      padding: 8px 10px;
+      border-radius: 6px;
+      line-height: 1.35;
+      text-transform: none;
+    }
+
+    /* score (top-right) */
+    #hudTopRight {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      color: white;
+      text-align: right;
+      background: rgba(0,0,0,0.45);
+      padding: 8px 10px;
+      border-radius: 6px;
+      font-size: 14px;
+    }
+    #hudTopRight div { line-height: 1.2; }
+
     /* death */
     #death {
       position: absolute;
@@ -103,6 +131,19 @@
   <div id="staminaBox"><div id="stamina"></div></div>
   <div id="ammo">Ammo: 30/30</div>
   <div id="reloadText">Reloading...</div>
+
+  <div id="controls">
+    <div>Cycle through weapons: 1 2 3</div>
+    <div>Sprint: SHIFT</div>
+    <div>Jump: SPACE</div>
+    <div>Move: W A S D</div>
+  </div>
+
+  <div id="hudTopRight">
+    <div id="currentScore">Score: 0</div>
+    <div id="highScore">High Score: 0</div>
+  </div>
+
   <div id="death">
     <div id="scoreText"></div>
     <div id="highText"></div>
@@ -127,11 +168,13 @@
     renderer.setSize(innerWidth, innerHeight);
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // ensure colors/textures render correctly
+    renderer.outputEncoding = THREE.sRGBEncoding;
     document.body.appendChild(renderer.domElement);
 
     // LIGHT
-    scene.add(new THREE.AmbientLight(0xffffff, 1.0));
-    const sun = new THREE.DirectionalLight(0xffffff, 1);
+    scene.add(new THREE.AmbientLight(0xffffff, 1.2));
+    const sun = new THREE.DirectionalLight(0xffffff, 1.4);
     sun.position.set(100, 200, 100);
     sun.castShadow = true;
     sun.shadow.mapSize.width = 1024;
@@ -145,35 +188,57 @@
     scene.add(sun);
 
     // ===== GRASS FLOOR =====
-    const grassColor = textureLoader.load('https://dl5zpyw5l3y4t.cloudfront.net/archive/Grass004/Grass004_2K_Color.png');
-    grassColor.wrapS = grassColor.wrapT = THREE.RepeatWrapping;
-    grassColor.repeat.set(100, 100);
+    // load textures asynchronously and assign to material when ready
+    let grassColor = null, grassNormal = null, grassRough = null, grassDisp = null;
+    let grassColorLoaded = false;
+    const grassBaseUrl = 'https://dl5zpyw5l3y4t.cloudfront.net/archive/Grass004/';
 
-    const grassNormal = textureLoader.load('https://dl5zpyw5l3y4t.cloudfront.net/archive/Grass004/Grass004_2K_NormalGL.png');
-    grassNormal.wrapS = grassNormal.wrapT = THREE.RepeatWrapping;
-    grassNormal.repeat.set(100, 100);
+    textureLoader.load(grassBaseUrl + 'Grass004_2K_Color.png', tex => {
+      grassColor = tex; grassColor.wrapS = grassColor.wrapT = THREE.RepeatWrapping; grassColor.repeat.set(100,100); grassColor.encoding = THREE.sRGBEncoding; grassColorLoaded = true;
+      if (typeof ground !== 'undefined' && ground.material) { ground.material.map = grassColor; ground.material.needsUpdate = true; }
+    }, undefined, err => { console.warn('Grass color failed to load', err); });
 
-    const grassRough = textureLoader.load('https://dl5zpyw5l3y4t.cloudfront.net/archive/Grass004/Grass004_2K_Roughness.png');
-    grassRough.wrapS = grassRough.wrapT = THREE.RepeatWrapping;
-    grassRough.repeat.set(100, 100);
+    textureLoader.load(grassBaseUrl + 'Grass004_2K_NormalGL.png', tex => { grassNormal = tex; grassNormal.wrapS = grassNormal.wrapT = THREE.RepeatWrapping; grassNormal.repeat.set(100,100); if (typeof ground !== 'undefined' && ground.material) { ground.material.normalMap = grassNormal; ground.material.needsUpdate = true; } }, undefined, err => { console.warn('Grass normal failed to load', err); });
 
-    const grassDisp = textureLoader.load('https://dl5zpyw5l3y4t.cloudfront.net/archive/Grass004/Grass004_2K_Displacement.png');
-    grassDisp.wrapS = grassDisp.wrapT = THREE.RepeatWrapping;
-    grassDisp.repeat.set(100, 100);
+    textureLoader.load(grassBaseUrl + 'Grass004_2K_Roughness.png', tex => { grassRough = tex; grassRough.wrapS = grassRough.wrapT = THREE.RepeatWrapping; grassRough.repeat.set(100,100); if (typeof ground !== 'undefined' && ground.material) { ground.material.roughnessMap = grassRough; ground.material.needsUpdate = true; } }, undefined, err => { console.warn('Grass roughness failed to load', err); });
+
+    textureLoader.load(grassBaseUrl + 'Grass004_2K_Displacement.png', tex => { grassDisp = tex; grassDisp.wrapS = grassDisp.wrapT = THREE.RepeatWrapping; grassDisp.repeat.set(100,100); if (typeof ground !== 'undefined' && ground.material) { ground.material.displacementMap = grassDisp; ground.material.displacementScale = 0.06; ground.material.needsUpdate = true; } }, undefined, err => { console.warn('Grass displacement failed to load', err); });
+
+    // Ground with grass texture fallback to solid green if textures fail
+    const groundMat = new THREE.MeshStandardMaterial({
+      map: grassColor,
+      normalMap: grassNormal,
+      roughnessMap: grassRough,
+      displacementMap: grassDisp,
+      displacementScale: 0.06,
+      color: 0x2e8b57,
+      roughness: 0.95
+    });
+    // if texture exists, ensure correct encoding
+    if (grassColor) grassColor.encoding = THREE.sRGBEncoding;
 
     const ground = new THREE.Mesh(
       new THREE.PlaneGeometry(2000, 2000, 200, 200),
-      new THREE.MeshStandardMaterial({
-        map: grassColor,
-        normalMap: grassNormal,
-        roughnessMap: grassRough,
-        displacementMap: grassDisp,
-        displacementScale: 0.1
-      })
+      groundMat
     );
     ground.rotation.x = -Math.PI / 2;
-    ground.receiveShadow = false;
+    ground.receiveShadow = true;
+    ground.castShadow = false;
     scene.add(ground);
+
+    // Ensure a visible fallback if textures fail to load or CORS blocks them
+    setTimeout(() => {
+      if (!grassColor || !grassColor.image) {
+        ground.material.map = null;
+        ground.material.normalMap = null;
+        ground.material.roughnessMap = null;
+        ground.material.displacementMap = null;
+        ground.material.color.set(0x39b54a);
+        ground.material.roughness = 0.8;
+        ground.material.needsUpdate = true;
+        console.warn('Ground textures not available; using solid green fallback.');
+      }
+    }, 1200);
 
     // ===== TREES =====
     function createTree(x, z) {
@@ -239,6 +304,8 @@
 
     let yaw = 0, pitch = 0;
     let keys = {};
+    // sanity timer to periodically prune camera children to avoid visual glitches
+    let cameraSanityTimer = 0;
 
     let stamina = 100;
     let health = 3;
@@ -286,192 +353,210 @@
 
     // Create more realistic gun models using primitives
     function createWeaponModels() {
-      // AK-47 Model
+      // Helper materials
+      const metal = new THREE.MeshStandardMaterial({color: 0x33353b, metalness: 0.9, roughness: 0.25});
+      const darkMetal = new THREE.MeshStandardMaterial({color: 0x1f1f20, metalness: 0.95, roughness: 0.15});
+      const wood = new THREE.MeshStandardMaterial({color: 0x6f3f1e, metalness: 0.1, roughness: 0.6});
+      const black = new THREE.MeshStandardMaterial({color: 0x0b0b0b, metalness: 0.8, roughness: 0.2});
+
+      // AK-47 Model (more detailed)
       const ak = new THREE.Group();
 
-      // Barrel
-      const akBarrel = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.03, 0.03, 0.6, 16),
-        new THREE.MeshStandardMaterial({color: 0x333333, metalness: 0.8, roughness: 0.2})
-      );
+      // Main barrel
+      const akBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.8, 18), metal);
       akBarrel.rotation.x = Math.PI / 2;
-      akBarrel.position.set(0, 0, -0.6);
+      akBarrel.position.set(0, 0, -0.9);
       ak.add(akBarrel);
 
       // Muzzle
-      const akMuzzle = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.04, 0.04, 0.1, 16),
-        new THREE.MeshStandardMaterial({color: 0x222222, metalness: 0.8, roughness: 0.2})
-      );
+      const akMuzzle = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.18, 12), darkMetal);
       akMuzzle.rotation.x = Math.PI / 2;
-      akMuzzle.position.set(0, 0, -0.95);
+      akMuzzle.position.set(0, 0, -1.25);
       ak.add(akMuzzle);
 
-      // Receiver/Body
-      const akReceiver = new THREE.Mesh(
-        new THREE.BoxGeometry(0.15, 0.12, 0.4),
-        new THREE.MeshStandardMaterial({color: 0x444444, metalness: 0.7, roughness: 0.3})
-      );
-      akReceiver.position.set(0, 0, -0.2);
+      // Receiver
+      const akReceiver = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.12, 0.45), metal);
+      akReceiver.position.set(0, -0.02, -0.35);
       ak.add(akReceiver);
 
-      // Stock
-      const akStock = new THREE.Mesh(
-        new THREE.BoxGeometry(0.12, 0.08, 0.5),
-        new THREE.MeshStandardMaterial({color: 0x8b4513, roughness: 0.5})
-      );
-      akStock.position.set(0, -0.02, 0.25);
+      // Top rail/sight
+      const akRail = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.03, 0.5), darkMetal);
+      akRail.position.set(0, 0.06, -0.45);
+      ak.add(akRail);
+
+      // Wooden stock
+      const akStock = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.08, 0.6), wood);
+      akStock.position.set(0.04, -0.04, 0.25);
+      akStock.rotation.x = -0.05;
       ak.add(akStock);
 
-      // Magazine (curved approximation)
-      const akMag = new THREE.Mesh(
-        new THREE.BoxGeometry(0.08, 0.25, 0.15),
-        new THREE.MeshStandardMaterial({color: 0x111111, metalness: 0.9, roughness: 0.1})
-      );
-      akMag.position.set(0, -0.15, -0.3);
-      akMag.rotation.z = Math.PI / 6; // Tilt for curve
+      // Curved magazine approximation
+      const akMag = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.28, 0.16), black);
+      akMag.position.set(0, -0.18, -0.05);
+      akMag.rotation.z = Math.PI / 5;
       ak.add(akMag);
 
       // Grip
-      const akGrip = new THREE.Mesh(
-        new THREE.BoxGeometry(0.08, 0.15, 0.08),
-        new THREE.MeshStandardMaterial({color: 0x8b4513, roughness: 0.5})
-      );
-      akGrip.position.set(0, -0.1, -0.05);
+      const akGrip = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.16, 0.09), wood);
+      akGrip.position.set(-0.02, -0.18, -0.12);
+      akGrip.rotation.x = 0.05;
       ak.add(akGrip);
 
-      // Handguard
-      const akHandguard = new THREE.Mesh(
-        new THREE.BoxGeometry(0.1, 0.1, 0.3),
-        new THREE.MeshStandardMaterial({color: 0x8b4513, roughness: 0.5})
-      );
-      akHandguard.position.set(0, 0, -0.5);
+      // Subtle fore-end
+      const akHandguard = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.09, 0.32), wood);
+      akHandguard.position.set(0, 0, -0.65);
       ak.add(akHandguard);
 
+      ak.position.set(0.42, -0.25, -0.9);
+      ak.scale.set(1.1,1.1,1.1);
       weapons.ak.model = ak;
+      ak.userData = ak.userData || {};
+      ak.userData.isWeapon = true;
+      akMag.userData = {origPosition: akMag.position.clone(), origRotation: akMag.rotation.clone()};
+      weapons.ak.parts = {mag: akMag};
+      // add small trigger and guard and ensure meshes cast/receive shadows
+      const akTrigger = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.04, 0.02), darkMetal);
+      akTrigger.position.set(-0.02, -0.08, -0.05);
+      ak.add(akTrigger);
+      const akTrigGuard = new THREE.Mesh(new THREE.TorusGeometry(0.035, 0.005, 8, 12, Math.PI), darkMetal);
+      akTrigGuard.rotation.x = Math.PI / 2;
+      akTrigGuard.position.set(0, -0.08, -0.05);
+      ak.add(akTrigGuard);
+      ak.traverse(m => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } });
 
-      // Shotgun Model
+      // Shotgun Model (pump-action visual)
       const sg = new THREE.Group();
 
-      // Barrel (long)
-      const sgBarrel = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.04, 0.04, 0.8, 16),
-        new THREE.MeshStandardMaterial({color: 0x333333, metalness: 0.8, roughness: 0.2})
-      );
+      const sgBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.0, 16), metal);
       sgBarrel.rotation.x = Math.PI / 2;
-      sgBarrel.position.set(0, 0, -0.7);
+      sgBarrel.position.set(0, 0, -1.05);
       sg.add(sgBarrel);
 
-      // Pump
-      const sgPump = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.06, 0.06, 0.3, 16),
-        new THREE.MeshStandardMaterial({color: 0x444444, metalness: 0.7, roughness: 0.3})
-      );
-      sgPump.rotation.x = Math.PI / 2;
-      sgPump.position.set(0, -0.05, -0.4);
-      sg.add(sgPump);
+      const sgTube = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.85, 12), darkMetal);
+      sgTube.rotation.x = Math.PI / 2;
+      sgTube.position.set(0, -0.02, -0.85);
+      sg.add(sgTube);
 
-      // Receiver
-      const sgReceiver = new THREE.Mesh(
-        new THREE.BoxGeometry(0.15, 0.15, 0.3),
-        new THREE.MeshStandardMaterial({color: 0x222222, metalness: 0.8, roughness: 0.2})
-      );
-      sgReceiver.position.set(0, 0, -0.15);
+      const sgReceiver = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.14, 0.36), darkMetal);
+      sgReceiver.position.set(0, -0.02, -0.25);
       sg.add(sgReceiver);
 
-      // Stock
-      const sgStock = new THREE.Mesh(
-        new THREE.BoxGeometry(0.12, 0.1, 0.5),
-        new THREE.MeshStandardMaterial({color: 0x8b4513, roughness: 0.5})
-      );
-      sgStock.position.set(0, 0, 0.25);
+      const sgPump = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.36, 10), black);
+      sgPump.rotation.x = Math.PI / 2;
+      sgPump.position.set(0, -0.06, -0.6);
+      sg.add(sgPump);
+
+      const sgStock = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.1, 0.6), wood);
+      sgStock.position.set(0.06, -0.02, 0.25);
       sg.add(sgStock);
 
-      // Grip
-      const sgGrip = new THREE.Mesh(
-        new THREE.BoxGeometry(0.08, 0.2, 0.1),
-        new THREE.MeshStandardMaterial({color: 0x111111, metalness: 0.9, roughness: 0.1})
-      );
-      sgGrip.position.set(0, -0.12, 0);
+      const sgGrip = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.18, 0.1), wood);
+      sgGrip.position.set(-0.02, -0.16, -0.02);
       sg.add(sgGrip);
 
+      sg.position.set(0.45, -0.28, -0.9);
+      sg.scale.set(1.05,1.05,1.05);
       weapons.shotgun.model = sg;
+      sg.userData = sg.userData || {};
+      sg.userData.isWeapon = true;
+      sgPump.userData = {origPosition: sgPump.position.clone()};
+      weapons.shotgun.parts = {pump: sgPump};
 
-      // Sniper Rifle Model
+      // Sniper Rifle Model (scoped bolt-action style)
       const sn = new THREE.Group();
 
-      // Long Barrel
-      const snBarrel = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.03, 0.03, 1.0, 16),
-        new THREE.MeshStandardMaterial({color: 0x333333, metalness: 0.8, roughness: 0.2})
-      );
+      const snBarrel = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.028, 1.4, 18), metal);
       snBarrel.rotation.x = Math.PI / 2;
-      snBarrel.position.set(0, 0, -0.8);
+      snBarrel.position.set(0, 0, -1.15);
       sn.add(snBarrel);
 
-      // Muzzle Brake
-      const snMuzzle = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.05, 0.05, 0.15, 16),
-        new THREE.MeshStandardMaterial({color: 0x222222, metalness: 0.8, roughness: 0.2})
-      );
+      const snMuzzle = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.2, 12), darkMetal);
       snMuzzle.rotation.x = Math.PI / 2;
-      snMuzzle.position.set(0, 0, -1.3);
+      snMuzzle.position.set(0, 0, -1.55);
       sn.add(snMuzzle);
 
-      // Body/Receiver
-      const snReceiver = new THREE.Mesh(
-        new THREE.BoxGeometry(0.15, 0.12, 0.4),
-        new THREE.MeshStandardMaterial({color: 0x444444, metalness: 0.7, roughness: 0.3})
-      );
-      snReceiver.position.set(0, 0, -0.2);
+      const snReceiver = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.12, 0.42), metal);
+      snReceiver.position.set(0, -0.02, -0.3);
       sn.add(snReceiver);
 
-      // Stock with cheek rest
-      const snStock = new THREE.Mesh(
-        new THREE.BoxGeometry(0.12, 0.1, 0.6),
-        new THREE.MeshStandardMaterial({color: 0x111111, metalness: 0.9, roughness: 0.1})
-      );
-      snStock.position.set(0, 0, 0.3);
+      const snStock = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.12, 0.8), black);
+      snStock.position.set(0.06, -0.02, 0.35);
       sn.add(snStock);
 
-      const snCheek = new THREE.Mesh(
-        new THREE.BoxGeometry(0.1, 0.05, 0.2),
-        new THREE.MeshStandardMaterial({color: 0x111111, metalness: 0.9, roughness: 0.1})
-      );
-      snCheek.position.set(0, 0.08, 0.2);
-      sn.add(snCheek);
-
-      // Scope
-      const snScope = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.04, 0.04, 0.3, 16),
-        new THREE.MeshStandardMaterial({color: 0x000000, metalness: 0.5, roughness: 0.4})
-      );
+      const snScope = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, 0.44, 12), black);
       snScope.rotation.x = Math.PI / 2;
-      snScope.position.set(0, 0.1, -0.3);
+      snScope.position.set(0, 0.09, -0.4);
       sn.add(snScope);
 
-      // Bipod (simple)
-      const bipodLeg1 = new THREE.Mesh(
-        new THREE.BoxGeometry(0.02, 0.2, 0.02),
-        new THREE.MeshStandardMaterial({color: 0x333333, metalness: 0.8, roughness: 0.2})
-      );
-      bipodLeg1.position.set(-0.05, -0.1, -0.5);
-      bipodLeg1.rotation.z = Math.PI / 6;
+      const snBolt = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.04, 0.18), darkMetal);
+      snBolt.position.set(-0.06, 0.02, -0.25);
+      sn.add(snBolt);
+
+      const bipodLeg1 = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.2, 0.02), darkMetal);
+      bipodLeg1.position.set(-0.05, -0.08, -0.6);
+      bipodLeg1.rotation.z = Math.PI / 8;
       sn.add(bipodLeg1);
 
-      const bipodLeg2 = new THREE.Mesh(
-        new THREE.BoxGeometry(0.02, 0.2, 0.02),
-        new THREE.MeshStandardMaterial({color: 0x333333, metalness: 0.8, roughness: 0.2})
-      );
-      bipodLeg2.position.set(0.05, -0.1, -0.5);
-      bipodLeg2.rotation.z = -Math.PI / 6;
-      sn.add(bipodLeg2);
+      const bipodLeg2 = bipodLeg1.clone();
+      bipodLeg2.position.x = 0.05; bipodLeg2.rotation.z = -Math.PI / 8; sn.add(bipodLeg2);
 
+      sn.position.set(0.38, -0.22, -1.05);
+      sn.scale.set(1.0,1.0,1.0);
       weapons.sniper.model = sn;
+      sn.userData = sn.userData || {};
+      sn.userData.isWeapon = true;
+      snReceiver.userData = {origPosition: snReceiver.position.clone()};
+      weapons.sniper.parts = {receiver: snReceiver};
+      // add scope lens detail and make sure meshes cast shadows
+      const snScopeLens = new THREE.Mesh(new THREE.CircleGeometry(0.04, 16), new THREE.MeshStandardMaterial({color:0x111111, metalness:0.6, roughness:0.3, emissive:0x0a0a0a}));
+      snScopeLens.rotation.x = -Math.PI/2;
+      snScopeLens.position.set(0, 0.09, -0.2);
+      sn.add(snScopeLens);
+      sn.traverse(m => { if (m.isMesh) { m.castShadow = true; m.receiveShadow = true; } });
     }
     createWeaponModels();
+    // Add current weapon to camera and ensure visibility
     camera.add(currentWeapon.model);
-    currentWeapon.model.position.set(0.35, -0.35, -0.6);
+    if (currentWeapon.model.visible !== undefined) currentWeapon.model.visible = true;
+    // ensure a canonical visible position so gun appears correctly
+    currentWeapon.model.position.set(0.42, -0.25, -0.9);
+    currentWeapon.model.userData = currentWeapon.model.userData || {};
+    currentWeapon.model.userData.origPosition = currentWeapon.model.position.clone();
+
+    // helper: hide any accidental player meshes (keeps camera + its children visible)
+    function hidePlayerModelParts() {
+      player.traverse(obj => {
+        // skip the camera itself and everything that is a child of the camera
+        if (obj === camera) return;
+        // climb parents to see if this object (or its ancestor) is directly under the camera
+        let p = obj.parent;
+        let underCamera = false;
+        while (p) { if (p === camera) { underCamera = true; break; } p = p.parent; }
+        if (!underCamera) {
+          // hide any visible meshes/groups that aren't part of the camera chain
+          if (obj.visible !== undefined) obj.visible = false;
+        }
+      });
+      // Also hide any non-weapon children of the camera (they can cause a visible 'thing' when looking down)
+      function hideCameraNonWeaponParts() {
+        const keep = [];
+        if (weapons.ak && weapons.ak.model) keep.push(weapons.ak.model);
+        if (weapons.shotgun && weapons.shotgun.model) keep.push(weapons.shotgun.model);
+        if (weapons.sniper && weapons.sniper.model) keep.push(weapons.sniper.model);
+        camera.children.forEach(ch => {
+          // always preserve parts explicitly flagged as weapons
+          if (ch.userData && ch.userData.isWeapon) { if (ch.visible !== undefined) ch.visible = true; return; }
+          // keep known weapon model references
+          if (keep.includes(ch)) { if (ch.visible !== undefined) ch.visible = true; return; }
+          if (ch.isLight || ch.type === 'PerspectiveCamera' || ch.isCamera) return;
+          if (ch.visible !== undefined) ch.visible = false;
+        });
+      }
+      hideCameraNonWeaponParts();
+      // expose for periodic use
+      hidePlayerModelParts.hideCameraNonWeaponParts = hideCameraNonWeaponParts;
+    }
+    hidePlayerModelParts();
 
     // Weapon switching
     addEventListener("keydown", e => {
@@ -492,8 +577,21 @@
       if (currentWeapon.model) camera.remove(currentWeapon.model);
       currentWeapon = weapons[name];
       camera.add(currentWeapon.model);
-      currentWeapon.model.position.set(0.35, -0.35, -0.6);
+      if (currentWeapon.model.visible !== undefined) currentWeapon.model.visible = true;
+      // reset to stored origin to avoid drift
+      const orig = (currentWeapon.model.userData && currentWeapon.model.userData.origPosition) ? currentWeapon.model.userData.origPosition : new THREE.Vector3(0.35, -0.35, -0.6);
+      currentWeapon.model.position.copy(orig);
+      currentWeapon.model.userData = currentWeapon.model.userData || {};
+      currentWeapon.model.userData.origPosition = orig.clone();
+
+      // cancel any reload when switching to avoid weird states
+      reloading = false;
+      reloadCounter = 0;
+      document.getElementById("reloadText").style.display = "none";
+
       document.getElementById("ammo").innerText = `Ammo: ${currentWeapon.ammo}/${currentWeapon.maxAmmo}`;
+      // ensure player meshes remain hidden if something changed
+      hidePlayerModelParts();
     }
 
     // ===== MOUSE CONTROL =====
@@ -510,11 +608,11 @@
     let npcs = [];
     let bullets = [];
 
-    function createHealthBar() {
+    function createHealthBar(color = 0x00ff00) {
       const bar = new THREE.Group();
       const bg = new THREE.Mesh(new THREE.PlaneGeometry(2, 0.25), new THREE.MeshBasicMaterial({color: 0xff0000}));
       bar.add(bg);
-      const hp = new THREE.Mesh(new THREE.PlaneGeometry(2, 0.25), new THREE.MeshBasicMaterial({color: 0x00ff00}));
+      const hp = new THREE.Mesh(new THREE.PlaneGeometry(2, 0.25), new THREE.MeshBasicMaterial({color: color}));
       hp.position.z = 0.01;
       bar.add(hp);
       bar.hp = hp;
@@ -524,28 +622,110 @@
 
     function spawnNPC() {
       const npc = new THREE.Group();
-      const body = new THREE.Mesh(new THREE.BoxGeometry(1.5, 2, 1), new THREE.MeshStandardMaterial({color: 0xaa0000}));
-      body.position.y = 1;
+
+      // Choose type: normal (green), speed (blue, faster), brute (red, double hp)
+      const r = Math.random();
+      let type = 'normal';
+      if (r < 0.15) type = 'brute';
+      else if (r < 0.4) type = 'speed';
+      npc.type = type;
+
+      // Visuals and size
+      const bodyColor = type === 'speed' ? 0x2266ff : (type === 'brute' ? 0x660000 : 0x22aa22);
+      const headColor = type === 'brute' ? 0x992222 : 0xffeeaa;
+      // Make NPCs larger so they better match player character size
+      const scale = type === 'brute' ? 2.2 : 1.8;
+
+      // Body
+      const body = new THREE.Mesh(new THREE.BoxGeometry(1.2 * scale, 1.6 * scale, 0.8 * scale), new THREE.MeshStandardMaterial({color: bodyColor}));
+      body.position.y = 0.9 * scale;
       body.castShadow = true;
       npc.add(body);
-      const head = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.9, 0.9), new THREE.MeshStandardMaterial({color: 0xff4444}));
-      head.position.y = 2.3;
+
+      // Head
+      const head = new THREE.Mesh(new THREE.BoxGeometry(0.8 * scale, 0.8 * scale, 0.8 * scale), new THREE.MeshStandardMaterial({color: headColor}));
+      head.position.y = 1.9 * scale;
       head.castShadow = true;
       npc.add(head);
-      npc.health = 100;
-      const hp = createHealthBar();
+
+      // Arms
+      const leftArm = new THREE.Mesh(new THREE.BoxGeometry(0.25 * scale, 0.9 * scale, 0.25 * scale), new THREE.MeshStandardMaterial({color: bodyColor}));
+      leftArm.position.set(-0.7 * scale, 0.7 * scale, 0);
+      leftArm.castShadow = true;
+      npc.add(leftArm);
+
+      const rightArm = leftArm.clone();
+      rightArm.position.x = 0.7 * scale;
+      npc.add(rightArm);
+
+      // Legs
+      const leftLeg = new THREE.Mesh(new THREE.BoxGeometry(0.35 * scale, 0.9 * scale, 0.35 * scale), new THREE.MeshStandardMaterial({color: 0x111111}));
+      leftLeg.position.set(-0.25 * scale, 0.0, 0);
+      leftLeg.castShadow = true;
+      npc.add(leftLeg);
+      const rightLeg = leftLeg.clone();
+      rightLeg.position.x = 0.25 * scale;
+      npc.add(rightLeg);
+
+      // Eyes
+      const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.06 * scale, 8, 8), new THREE.MeshStandardMaterial({color: 0x000000}));
+      eyeL.position.set(-0.18 * scale, 1.95 * scale, 0.42 * scale);
+      eyeL.castShadow = false;
+      npc.add(eyeL);
+      const eyeR = eyeL.clone();
+      eyeR.position.x = 0.18 * scale;
+      npc.add(eyeR);
+
+      // Stats
+      npc.maxHealth = type === 'brute' ? 200 : 100;
+      npc.health = npc.maxHealth;
+      // reduce top speed slightly and add a velocity vector for smoothing
+      npc.speed = type === 'speed' ? 0.36 : 0.18; // speedsters move faster but less jittery
+      npc.velocity = new THREE.Vector3();
+      // keep NPCs a bit away and give them a detection/avoid radius
+      npc.avoidDistance = 3.8 * scale;
+      npc.detectionRadius = type === 'speed' ? 70 : (type === 'brute' ? 55 : 45);
+
+      // Movement/wander AI state (make walk targets not too close to the player)
+      function randomWalkTarget() {
+        const t = new THREE.Vector3((Math.random() - 0.5) * 600, 0, (Math.random() - 0.5) * 600);
+        if (t.distanceTo(player.position) < npc.avoidDistance + 12) {
+          const dir = t.clone().sub(player.position).normalize().multiplyScalar(npc.avoidDistance + 22);
+          t.copy(player.position).add(dir);
+        }
+        return t;
+      }
+      npc.walkTarget = randomWalkTarget();
+      npc.walkTimer = 200 + Math.floor(Math.random() * 200);
+      npc.legs = [leftLeg, rightLeg];
+
+      // Health bar colored to type
+      const hp = createHealthBar(type === 'speed' ? 0x2266ff : (type === 'brute' ? 0x992222 : 0x00ff00));
       npc.add(hp);
+      // Raise healthbar to match scaled size
+      hp.position.y = 3.4 * scale;
       npc.hpbar = hp;
-      npc.position.set((Math.random() - 0.5) * 400, 0, (Math.random() - 0.5) * 400);
-      npc.cool = 0;
+
+      // Ensure spawn position is a minimum distance away from the player to avoid glitches
+      const minSpawnDist = 18;
+      let angle = Math.random() * Math.PI * 2;
+      let dist = minSpawnDist + Math.random() * 380;
+      npc.position.set(player.position.x + Math.cos(angle) * dist, 0, player.position.z + Math.sin(angle) * dist);
+      // small random jitter so multiple NPCs don't stack exact coords
+      npc.position.x += (Math.random() - 0.5) * 1.5;
+      npc.position.z += (Math.random() - 0.5) * 1.5;
+
+      // Delay initial shooting for ~3 seconds (180 frames)
+      npc.cool = 180;
       scene.add(npc);
       npcs.push(npc);
-      // Initial health bar setup (though default is fine)
-      npc.hpbar.hp.scale.x = npc.health / 100;
-      npc.hpbar.hp.position.x = -1 + (npc.health / 100);
+
+      // Initial health bar setup
+      npc.hpbar.hp.scale.x = npc.health / npc.maxHealth;
+      npc.hpbar.hp.position.x = -1 + (npc.health / npc.maxHealth);
     }
     function maintainNPCs() {
-      while (npcs.length < 10) spawnNPC();
+      while (npcs.length < 20) spawnNPC();
     }
     maintainNPCs();
 
@@ -560,9 +740,10 @@
       currentWeapon.ammo--;
       document.getElementById("ammo").innerText = `Ammo: ${currentWeapon.ammo}/${currentWeapon.maxAmmo}`;
 
-      // recoil animation
+      // recoil animation (reset to canonical z to avoid stacking offsets)
       currentWeapon.model.position.z -= 0.15;
-      setTimeout(() => currentWeapon.model.position.z += 0.15, 80);
+      const resetZ = (currentWeapon.model.userData && currentWeapon.model.userData.origPosition) ? currentWeapon.model.userData.origPosition.z : currentWeapon.model.position.z + 0.15;
+      setTimeout(() => currentWeapon.model.position.z = resetZ, 80);
 
       // Muzzle flash
       const flash = new THREE.PointLight(0xffaa00, 2, 10);
@@ -573,28 +754,36 @@
       raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
       const hits = raycaster.intersectObjects(npcs, true);
       if (hits.length > 0) {
-        const enemy = hits[0].object.parent;
-        if (currentWeapon.name === "sniper") {
-          enemy.health = 0; // one-shot
-        } else {
-          enemy.health -= currentWeapon.damage;
-        }
-        const fraction = enemy.health / 100;
-        enemy.hpbar.hp.scale.x = fraction;
-        enemy.hpbar.hp.position.x = -1 + fraction;
-        if (enemy.health <= 0) {
-          scene.remove(enemy);
-          npcs.splice(npcs.indexOf(enemy), 1);
-          score++;
+        // Find the top-level npc group from the hit
+        let enemy = hits[0].object;
+        while (enemy && !npcs.includes(enemy)) enemy = enemy.parent;
+        if (enemy) {
+          if (currentWeapon.name === "sniper") {
+            enemy.health = 0; // one-shot
+          } else {
+            enemy.health -= currentWeapon.damage;
+          }
+          enemy.health = Math.max(0, enemy.health);
+          const fraction = enemy.health / enemy.maxHealth;
+          enemy.hpbar.hp.scale.x = fraction;
+          enemy.hpbar.hp.position.x = -1 + fraction;
+          if (enemy.health <= 0) {
+            scene.remove(enemy);
+            npcs.splice(npcs.indexOf(enemy), 1);
+            score++;
+          }
         }
       }
     }
 
     // ===== ENEMY SHOOT =====
     function enemyShoot(npc) {
-      const b = new THREE.Mesh(new THREE.SphereGeometry(0.25, 8, 8), new THREE.MeshBasicMaterial({color: "red"}));
+      const color = npc.type === 'speed' ? 0x66ccff : (npc.type === 'brute' ? 0xff4444 : 0xff0000);
+      const b = new THREE.Mesh(new THREE.SphereGeometry(0.25, 8, 8), new THREE.MeshBasicMaterial({color: color}));
       b.position.copy(npc.position);
-      b.userData = {vel: player.position.clone().sub(npc.position).normalize().multiplyScalar(0.7)};
+      // Slow down enemy bullets
+      const speed = npc.type === 'speed' ? 0.6 : 0.35;
+      b.userData = {vel: player.position.clone().sub(npc.position).normalize().multiplyScalar(speed)};
       scene.add(b);
       bullets.push(b);
     }
@@ -641,9 +830,33 @@
     function handleReload() {
       if (reloading) {
         reloadCounter--;
+        const elapsed = currentWeapon.reloadTime - Math.max(0, reloadCounter);
+        const progress = Math.min(1, elapsed / currentWeapon.reloadTime);
+        document.getElementById("reloadText").style.display = "block";
+        document.getElementById("reloadText").innerText = `Reloading... ${Math.round(progress * 100)}%`;
+
+        const parts = currentWeapon.parts || {};
+        // Per-weapon visual motion synchronized to reload progress
+        if (currentWeapon.name === "AK" && parts.mag) {
+          parts.mag.rotation.x = parts.mag.userData.origRotation.x - Math.sin(progress * Math.PI) * 0.8;
+          parts.mag.position.y = parts.mag.userData.origPosition.y + Math.sin(progress * Math.PI) * 0.05;
+        } else if (currentWeapon.name === "Shotgun" && parts.pump) {
+          parts.pump.position.z = parts.pump.userData.origPosition.z + Math.sin(progress * Math.PI) * -0.15;
+        } else if (currentWeapon.name === "Sniper" && parts.receiver) {
+          parts.receiver.position.z = parts.receiver.userData.origPosition.z + Math.sin(progress * Math.PI) * -0.25;
+        } else if (currentWeapon.model) {
+          currentWeapon.model.position.y = -0.35 + Math.sin(progress * Math.PI) * 0.05;
+        }
+
         if (reloadCounter <= 0) {
           currentWeapon.ammo = currentWeapon.maxAmmo;
           reloading = false;
+          // reset parts to original transforms
+          if (parts.mag && parts.mag.userData.origRotation) parts.mag.rotation.copy(parts.mag.userData.origRotation);
+          if (parts.mag && parts.mag.userData.origPosition) parts.mag.position.copy(parts.mag.userData.origPosition);
+          if (parts.pump && parts.pump.userData.origPosition) parts.pump.position.copy(parts.pump.userData.origPosition);
+          if (parts.receiver && parts.receiver.userData.origPosition) parts.receiver.position.copy(parts.receiver.userData.origPosition);
+          if (currentWeapon.model) currentWeapon.model.position.set(0.35, -0.35, -0.6);
           document.getElementById("ammo").innerText = `Ammo: ${currentWeapon.ammo}/${currentWeapon.maxAmmo}`;
           document.getElementById("reloadText").style.display = "none";
         }
@@ -688,27 +901,130 @@
         onGround = true;
       }
 
-      // NPC behavior
+      // NPC behavior (wandering + chasing)
       npcs.forEach(n => {
         const dist = n.position.distanceTo(player.position);
         n.hpbar.quaternion.copy(camera.quaternion);
+
+        // Wandering timer decrement (target selection handled below)
+        n.walkTimer--;
+
+        // If close to player, chase (but keep a safe distance); otherwise head to walkTarget
+        if (dist < n.detectionRadius) {
+          // chase behavior — smooth acceleration toward player, stop before avoidDistance
+          const dir = player.position.clone().sub(n.position);
+          dir.y = 0;
+          const desired = dir.clone();
+          const dlen = desired.length();
+          if (dlen > 0.001) desired.normalize();
+
+          if (dlen > n.avoidDistance + 0.6) {
+            const desiredVel = desired.multiplyScalar(n.speed * (n.type === 'speed' ? 1.25 : 1.0));
+            n.velocity.lerp(desiredVel, 0.18);
+            n.position.add(n.velocity);
+            n.rotation.y = Math.atan2(n.velocity.x, n.velocity.z);
+          } else {
+            // back away smoothly
+            const away = n.position.clone().sub(player.position);
+            away.y = 0;
+            if (away.length() === 0) away.set(Math.random() - 0.5, 0, Math.random() - 0.5);
+            away.normalize();
+            const awayVel = away.multiplyScalar(n.speed * 0.6);
+            n.velocity.lerp(awayVel, 0.2);
+            n.position.add(n.velocity);
+            n.rotation.y = Math.atan2(n.velocity.x, n.velocity.z);
+          }
+
+          // leg animation scaled by actual velocity to avoid jitter
+          if (n.legs) {
+            const t = performance.now() * 0.005;
+            const moveSpeed = Math.min(1.5, n.velocity.length() * 6);
+            n.legs.forEach((leg, i) => leg.rotation.x = Math.sin(t * 6 + i) * 0.6 * moveSpeed);
+          }
+        } else {
+          // walking toward walkTarget with smoothing
+          if (n.walkTimer <= 0 || n.position.distanceTo(n.walkTarget) < 2) {
+            const t = new THREE.Vector3((Math.random() - 0.5) * 600, 0, (Math.random() - 0.5) * 600);
+            if (t.distanceTo(player.position) < n.avoidDistance + 10) {
+              const dir = t.clone().sub(player.position).normalize().multiplyScalar(n.avoidDistance + 20);
+              t.copy(player.position).add(dir);
+            }
+            n.walkTarget.copy(t);
+            n.walkTimer = 200 + Math.floor(Math.random() * 200);
+          }
+
+          const dir = n.walkTarget.clone().sub(n.position);
+          dir.y = 0;
+          if (dir.length() > 0.1) {
+            const desiredVel = dir.normalize().multiplyScalar(n.speed);
+            n.velocity.lerp(desiredVel, 0.12);
+            n.position.add(n.velocity);
+            n.rotation.y = Math.atan2(n.velocity.x, n.velocity.z);
+            if (n.legs) {
+              const t = performance.now() * 0.005;
+              const moveSpeed = Math.min(1.2, n.velocity.length() * 6);
+              n.legs.forEach((leg, i) => leg.rotation.x = Math.sin(t * 6 + i) * 0.6 * moveSpeed);
+            }
+          }
+        }
+
+        // Shooting
         n.cool--;
-        if (dist < 120 && n.cool <= 0) {
+        // Don't allow NPCs to shoot during player's respawn protection and wait the initial delay
+        if (dist < 120 && n.cool <= 0 && respawnProtection <= 0) {
           enemyShoot(n);
-          n.cool = 120;
+          n.cool = n.type === 'speed' ? 90 : 120;
         }
       });
       maintainNPCs();
 
       // bullets
-      bullets.forEach(b => {
+      // tidy up bullets safely (iterate backwards so removals don't skip)
+      for (let i = bullets.length - 1; i >= 0; i--) {
+        const b = bullets[i];
         b.position.add(b.userData.vel);
         if (b.position.distanceTo(player.position) < 1.5) {
           damagePlayer();
           scene.remove(b);
+          bullets.splice(i, 1);
+          continue;
         }
+        // remove stray bullets that go too far away to keep array small
+        if (b.position.distanceTo(player.position) > 1200) {
+          scene.remove(b);
+          bullets.splice(i, 1);
+          continue;
+        }
+      }
+
+      // periodic camera sanity check to remove any non-weapon children that cause artifacts when looking down
+      cameraSanityTimer++;
+      if (cameraSanityTimer % 60 === 0) {
+        if (hidePlayerModelParts && hidePlayerModelParts.hideCameraNonWeaponParts) hidePlayerModelParts.hideCameraNonWeaponParts();
+      }
+
+      // Update HUD scores
+      const cs = document.getElementById("currentScore");
+      const hs = document.getElementById("highScore");
+      if (cs) cs.innerText = `Score: ${score}`;
+      if (hs) hs.innerText = `High Score: ${highscore}`;
+
+    }
+
+    // Background music: attempt autoplay, fallback to click-resume (song.mp3 in same folder)
+    const bgMusic = new Audio('song.mp3');
+    bgMusic.loop = true;
+    bgMusic.volume = 0.35;
+    function tryPlayBackgroundMusic() {
+      bgMusic.play().catch(() => {
+        // Autoplay blocked; allow a user gesture to start playback once
+        renderer.domElement.addEventListener('click', function oncePlay() {
+          bgMusic.play();
+          renderer.domElement.removeEventListener('click', oncePlay);
+        }, { once: true });
       });
     }
+    tryPlayBackgroundMusic();
 
     // ===== ANIMATION LOOP =====
     function animate() {
